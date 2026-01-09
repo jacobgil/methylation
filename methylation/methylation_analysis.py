@@ -127,7 +127,7 @@ def create_modified_groups(
             elif g_str in group_b_treatment_str:
                 modified_groups.append(f"group_b_{target}")
             else:
-                modified_groups.append(g_str)
+                modified_groups.append("other")
     else:
         sex_groups = [f"{groups_dict[name]}_{sex_dict[name]}" for name in sample_names]
         modified_groups = []
@@ -247,7 +247,6 @@ def get_differences_between_groups(
     
     results_df = results_df.sort_values(['chromosome', 'location'])
     results_df["location"] = results_df["location"].astype(int)
-    
     return results_df, group_comparison
 
 
@@ -591,6 +590,7 @@ def main(cfg: DictConfig):
                 else:
                     parts.append(str(g))
             return '+'.join(parts)
+        
         
         group_a_str = format_filename_group(group_comparison['group_a'])
         group_b_str = format_filename_group(group_comparison['group_b'])
