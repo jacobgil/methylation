@@ -1,0 +1,41 @@
+# Sweep configuration for methylation analysis
+# 
+# Usage: python methylation/methylation_analysis.py --config-name=sweep --multirun
+#
+# IMPORTANT: You must still use the --multirun flag on the command line!
+# This file only defines which parameters to sweep over.
+
+defaults:
+  - config  # Inherit all settings from config.yaml
+
+# Define sweep parameters under hydra.sweeper.params
+# Format: parameter_path: value1,value2,value3
+# Hydra will create a run for each combination of values
+hydra:
+  sweeper:
+    params:
+      # Sweep over group comparisons
+      # For list parameters, use YAML list syntax with each value as a string
+      # Each string will be parsed by Hydra as a list expression
+      group_comparison.group_a:
+        - "[3]"
+        - "[3]"
+        - "[3]"
+        - "[3]"
+      group_comparison.group_b:
+        - "[4]"
+        - "[4]"
+        - "[4]"
+        - "[1]"
+        
+      
+      # Sweep over targets (simple string values, can use comma-separated or YAML list)
+      # Alternative YAML list format:
+      targets:
+        - all
+        - male
+        - female
+        - all
+      
+      # Optional: sweep over number of permutations
+      # num_permutations: 100,500,1000

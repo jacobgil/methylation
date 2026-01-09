@@ -1,0 +1,49 @@
+# Configuration file for methylation analysis
+# 
+# To run sweeps, you have two options:
+# 1. Command line: python methylation_analysis.py --multirun group_comparison.group_a=[1],[1,3] group_comparison.group_b=[3],[2,4]
+# 2. Config file: python methylation_analysis.py --config-name=sweep
+#    (see conf/sweep.yaml for sweep configuration)
+
+# Group comparison configuration
+# Specify which groups to combine for comparison
+group_comparison:
+  group_a: [3]  # Groups to combine into group A
+  group_b: [4]  # Groups to combine into group B
+
+# Analysis parameters
+# Can be swept using: python methylation_analysis.py --multirun targets=[all],[male],[female]
+targets: all
+
+
+# Input file paths
+input:
+  feature_vector_path: "feature_vector.joblib"
+  groups_path: "groups.csv"
+  global_set_path: "global_set.npy"
+
+# Output configuration
+output:
+  folder: "output"
+
+delta_beta_threshold: 20.0  # Minimum delta_beta value to keep
+# Number of permutations for FDR calculation
+# Statistical considerations:
+# - The method examines the upper tail (80th-99.9th percentiles) of delta_beta distribution
+# - More permutations = more stable FDR estimates, especially in the tail
+# - 1000: Recommended for stable FDR estimates and publication-quality results (default)
+# - 100: ~10x faster for exploratory analysis, but FDR estimates have higher variance
+# - 500: Good middle ground between speed and stability
+# For final results, use 1000. For quick exploration during development, 100 is acceptable.
+num_permutations: 10
+
+# Visualization parameters
+visualization:
+  exclude_control: true  # Whether to exclude control groups from visualization
+  # Font sizes for different text elements in the plot
+  font_sizes:
+    title: 16  # Main plot title
+    chromosome_label: 8  # Chromosome names above each bar
+    location_label: 5  # Location numbers below features
+    legend: 7  # Legend text
+    empty_plot_message: 16  # Message when no features found
