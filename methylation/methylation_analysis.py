@@ -23,6 +23,32 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def format_group_label(group_list):
+    """
+    Format group list for display, handling control group syntax.
+    
+    Args:
+        group_list: List of groups, can include strings like "c:3" for control of group 3
+    
+    Returns:
+        Formatted string for display (e.g., "3", "Control of 3", "3+4", "Control of 3+2")
+    """
+    labels = []
+    for g in group_list:
+        g_str = str(g)
+        if g_str.startswith("c:"):
+            # Control group syntax
+            try:
+                control_group = g_str.split(":")[1]
+                labels.append(f"Control of {control_group}")
+            except IndexError:
+                labels.append(g_str)
+        else:
+            labels.append(g_str)
+    
+    return '+'.join(labels)
+
+
 def create_modified_groups(
     groups_df: pd.DataFrame,
     sample_names: list,
@@ -32,10 +58,16 @@ def create_modified_groups(
     """
     Create modified groups based on group comparison configuration.
     
+    Supports both simple format (backward compatible) and control group comparisons:
+    - Simple: group_a: [3] compares treatment groups
+    - Control: group_a: ["c:3"] compares control of group 3
+    - Mixed: group_a: [3], group_b: ["c:2"] compares group 3 vs control of group 2
+    
     Args:
         groups_df: DataFrame with sample, group, and Sex columns
         sample_names: List of sample names (without .joblib extension)
         group_comparison: Dict with keys 'group_a' and 'group_b' containing lists of groups to combine
+                         Can include strings like "c:3" to specify control of group 3
         target: Target subset ('all', 'male', 'female')
     
     Returns:
@@ -46,31 +78,78 @@ def create_modified_groups(
     
     groups = [groups_dict[name] for name in sample_names]
     
+    # Parse group_a and group_b to extract treatment groups and control specifications
+    def parse_group_spec(group_list):
+        """Parse group specification, handling both simple and control syntax."""
+        treatment_groups = []
+        control_of_groups = []
+        
+        for g in group_list:
+            g_str = str(g)
+            if g_str.startswith("c:"):
+                # Control group syntax: "c:3" means control of group 3
+                try:
+                    control_group = int(g_str.split(":")[1])
+                    control_of_groups.append(control_group)
+                except (ValueError, IndexError):
+                    logger.warning(f"Invalid control group syntax: {g_str}. Expected format: 'c:X' where X is a group number.")
+            else:
+                # Regular treatment group
+                try:
+                    treatment_groups.append(int(g_str))
+                except ValueError:
+                    # Keep as string if not a number
+                    treatment_groups.append(g_str)
+        
+        return treatment_groups, control_of_groups
+    
+    group_a_treatment, group_a_control_of = parse_group_spec(group_comparison['group_a'])
+    group_b_treatment, group_b_control_of = parse_group_spec(group_comparison['group_b'])
+    
     if target == 'all':
         modified_groups = []
-        group_a_list = [str(g) for g in group_comparison['group_a']]
-        group_b_list = [str(g) for g in group_comparison['group_b']]
+        group_a_treatment_str = [str(g) for g in group_a_treatment]
+        group_b_treatment_str = [str(g) for g in group_b_treatment]
         
         for g in groups:
             g_str = str(g)
-            if g_str in group_a_list:
+            # Check if it's a control group that should be in group_a
+            if g_str == 'c' and group_a_control_of:
+                # Include all control samples when comparing controls (no filtering by associated group for now)
                 modified_groups.append(f"group_a_{target}")
-            elif g_str in group_b_list:
+            # Check if it's a control group that should be in group_b
+            elif g_str == 'c' and group_b_control_of:
+                modified_groups.append(f"group_b_{target}")
+            # Check if it's a treatment group in group_a
+            elif g_str in group_a_treatment_str:
+                modified_groups.append(f"group_a_{target}")
+            # Check if it's a treatment group in group_b
+            elif g_str in group_b_treatment_str:
                 modified_groups.append(f"group_b_{target}")
             else:
                 modified_groups.append(g_str)
     else:
         sex_groups = [f"{groups_dict[name]}_{sex_dict[name]}" for name in sample_names]
         modified_groups = []
-        group_a_list = [f"{str(g)}_{target}" for g in group_comparison['group_a']]
-        group_b_list = [f"{str(g)}_{target}" for g in group_comparison['group_b']]
+        group_a_treatment_str = [f"{str(g)}_{target}" for g in group_a_treatment]
+        group_b_treatment_str = [f"{str(g)}_{target}" for g in group_b_treatment]
         
         for g in sex_groups:
+            # Check if it's a control group of the target sex
             if g == f'c_{target}':
-                modified_groups.append(f'c_{target}')
-            elif g in group_a_list:
+                # Check if control should be in group_a or group_b
+                if group_a_control_of:
+                    modified_groups.append(f'group_a_{target}')
+                elif group_b_control_of:
+                    modified_groups.append(f'group_b_{target}')
+                else:
+                    # Keep control separate if not being compared
+                    modified_groups.append(f'c_{target}')
+            # Check if it's a treatment group in group_a
+            elif g in group_a_treatment_str:
                 modified_groups.append(f'group_a_{target}')
-            elif g in group_b_list:
+            # Check if it's a treatment group in group_b
+            elif g in group_b_treatment_str:
                 modified_groups.append(f'group_b_{target}')
             else:
                 modified_groups.append('other')
@@ -103,7 +182,9 @@ def get_differences_between_groups(
         DataFrame with results
     """
     logger.info(f"Processing {len(data)} samples for target '{target}'")
-    logger.info(f"Group comparison: {group_comparison['group_a']} vs {group_comparison['group_b']}")
+    group_a_label = format_group_label(group_comparison['group_a'])
+    group_b_label = format_group_label(group_comparison['group_b'])
+    logger.info(f"Group comparison: {group_a_label} vs {group_b_label}")
     logger.info(f"Using {num_permutations} permutations for FDR calculation")
     
     embeddings = []
@@ -400,14 +481,14 @@ def visualize(
     plt.xlim(-20, current_pos + 20)
     plt.axis('off')
     
-    # Create legend labels
-    group_a_str = '+'.join([str(g) for g in group_comparison['group_a']])
-    group_b_str = '+'.join([str(g) for g in group_comparison['group_b']])
+    # Create legend labels with proper formatting for control groups
+    group_a_label = format_group_label(group_comparison['group_a'])
+    group_b_label = format_group_label(group_comparison['group_b'])
     
     # Add legend
     legend_elements = [
-        Patch(facecolor='blue', alpha=0.7, label=f'Group {group_a_str} {target}'),
-        Patch(facecolor='green', alpha=0.7, label=f'Group {group_b_str} {target}')
+        Patch(facecolor='blue', alpha=0.7, label=f'{group_a_label} {target}'),
+        Patch(facecolor='green', alpha=0.7, label=f'{group_b_label} {target}')
     ]
     plt.legend(handles=legend_elements, loc='upper right', fontsize=font_sizes['legend'])
     
@@ -457,7 +538,9 @@ def main(cfg: DictConfig):
     logger.info("Starting methylation analysis")
     logger.info(f"Project root: {project_root}")
     logger.info(f"Output directory: {output_dir}")
-    logger.info(f"Group comparison: {cfg.group_comparison['group_a']} vs {cfg.group_comparison['group_b']}")
+    group_a_label = format_group_label(cfg.group_comparison['group_a'])
+    group_b_label = format_group_label(cfg.group_comparison['group_b'])
+    logger.info(f"Group comparison: {group_a_label} vs {group_b_label}")
     logger.info(f"Targets: {cfg.targets}")
     logger.info("=" * 80)
     
@@ -497,8 +580,20 @@ def main(cfg: DictConfig):
         )
         
         # Create output filenames with group comparison info
-        group_a_str = '+'.join([str(g) for g in group_comparison['group_a']])
-        group_b_str = '+'.join([str(g) for g in group_comparison['group_b']])
+        # Use simplified format for filenames (replace "c:" with "c" for cleaner filenames)
+        def format_filename_group(group_list):
+            """Format group list for filename, replacing 'c:3' with 'c3'."""
+            parts = []
+            for g in group_list:
+                g_str = str(g)
+                if g_str.startswith("c:"):
+                    parts.append(f"c{g_str.split(':')[1]}")
+                else:
+                    parts.append(str(g))
+            return '+'.join(parts)
+        
+        group_a_str = format_filename_group(group_comparison['group_a'])
+        group_b_str = format_filename_group(group_comparison['group_b'])
         filename_suffix = f"g{group_a_str}_vs_g{group_b_str}_{target}"
         
         # Save results

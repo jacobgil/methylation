@@ -7,9 +7,25 @@
 
 # Group comparison configuration
 # Specify which groups to combine for comparison
+# 
+# Simple format (treatment groups):
+#   group_a: [3]  # Compare treatment group 3
+#   group_b: [4]  # Compare treatment group 4
+#
+# Control group comparisons (use "c:X" syntax):
+#   group_a: ["c:3"]  # Compare control of group 3
+#   group_b: ["c:2"]  # Compare control of group 2
+#
+# Mixed comparisons:
+#   group_a: [3]      # Treatment group 3
+#   group_b: ["c:2"]  # Control of group 2
+#
+# Multiple groups:
+#   group_a: [3, 4]   # Combine groups 3 and 4
+#   group_b: ["c:2"]  # Control of group 2
 group_comparison:
-  group_a: [3]  # Groups to combine into group A
-  group_b: [4]  # Groups to combine into group B
+  group_a: [3]  # Groups to combine into group A (or use ["c:3"] for control of group 3)
+  group_b: [4]  # Groups to combine into group B (or use ["c:4"] for control of group 4)
 
 # Analysis parameters
 # Can be swept using: python methylation_analysis.py --multirun targets=[all],[male],[female]
@@ -35,7 +51,7 @@ delta_beta_threshold: 20.0  # Minimum delta_beta value to keep
 # - 100: ~10x faster for exploratory analysis, but FDR estimates have higher variance
 # - 500: Good middle ground between speed and stability
 # For final results, use 1000. For quick exploration during development, 100 is acceptable.
-num_permutations: 10
+num_permutations: 1000
 
 # Visualization parameters
 visualization:
