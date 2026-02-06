@@ -200,11 +200,73 @@ def get_differences_between_groups(
     )
     logger.debug(f"Created {len(set(modified_groups))} modified groups: {set(modified_groups)}")
     
+    # Filter out "other" samples to only compare the specified groups
+    # This ensures delta_beta and best_pair only reflect differences between group_a and group_b
+    group_a_label = f"group_a_{target}"
+    group_b_label = f"group_b_{target}"
+    keep_mask = np.array([g in [group_a_label, group_b_label] for g in modified_groups])
+    
+    if keep_mask.sum() == 0:
+        logger.warning(f"No samples found matching comparison groups {group_a_label} and {group_b_label}")
+        # Return empty DataFrame with expected structure
+        empty_df = pd.DataFrame({
+            'feature': pd.Series(dtype='int64'),
+            'delta_beta': pd.Series(dtype='float64'),
+            'db_obs': pd.Series(dtype='float64'),
+            'best_pair': pd.Series(dtype=object),
+            'feature_name': pd.Series(dtype=object),
+            'chromosome': pd.Series(dtype=object),
+            'location': pd.Series(dtype='int64')
+        })
+        return empty_df, group_comparison
+    
+    embeddings_filtered = embeddings[keep_mask]
+    modified_groups_filtered = np.array(modified_groups)[keep_mask]
+    logger.info(f"Filtered to {len(embeddings_filtered)} samples for comparison (removed {len(embeddings) - len(embeddings_filtered)} 'other' samples)")
+    logger.debug(f"Groups in comparison: {set(modified_groups_filtered)}")
+    
     tau, tbl, results_df, means_obs, levels = permutation_fdr_delta_beta(
-        embeddings, np.array(modified_groups), B=num_permutations
+        embeddings_filtered, modified_groups_filtered, B=num_permutations
     )
     logger.info(f"FDR analysis complete. Threshold (tau): {tau:.4f}")
     logger.info(f"Found {len(results_df)} features before threshold filtering")
+    
+    # Replace internal group labels with readable names
+    # Create mapping from internal labels to readable names
+    readable_group_a = format_group_label(group_comparison['group_a'])
+    readable_group_b = format_group_label(group_comparison['group_b'])
+    
+    # Map internal labels to readable names
+    label_mapping = {}
+    for level in levels:
+        if level == f"group_a_{target}":
+            label_mapping[level] = readable_group_a
+        elif level == f"group_b_{target}":
+            label_mapping[level] = readable_group_b
+        else:
+            # Keep original if unexpected label
+            label_mapping[level] = level
+    
+    # Rename mean_beta columns
+    rename_dict = {}
+    for col in results_df.columns:
+        if col.startswith('mean_beta_'):
+            for old_label, new_label in label_mapping.items():
+                if col == f'mean_beta_{old_label}':
+                    rename_dict[col] = f'mean_beta_{new_label}'
+                    break
+    
+    if rename_dict:
+        results_df = results_df.rename(columns=rename_dict)
+        logger.debug(f"Renamed columns: {rename_dict}")
+    
+    # Update best_pair values to use readable names
+    if 'best_pair' in results_df.columns:
+        def replace_best_pair(pair_str):
+            for old_label, new_label in label_mapping.items():
+                pair_str = pair_str.replace(old_label, new_label)
+            return pair_str
+        results_df['best_pair'] = results_df['best_pair'].apply(replace_best_pair)
     
     results_df = results_df[results_df.delta_beta > delta_beta_threshold]
     logger.info(f"After threshold filtering (>{delta_beta_threshold}): {len(results_df)} features")
@@ -338,27 +400,36 @@ def visualize(
     current_pos = 0
     chrom_positions = {}
     
-    # Get group labels for comparison - find actual column names in the dataframe
-    group_a_label = f"group_a_{target}"
-    group_b_label = f"group_b_{target}"
+    # Get readable group labels for comparison
+    readable_group_a = format_group_label(group_comparison['group_a'])
+    readable_group_b = format_group_label(group_comparison['group_b'])
     
-    # Find the actual column names that match our group labels
+    # Find the actual column names that match our group labels (now using readable names)
     mean_beta_cols = [col for col in csv.columns if col.startswith('mean_beta_')]
     group_a_col = None
     group_b_col = None
     
+    # Try to find columns matching readable names
     for col in mean_beta_cols:
-        if group_a_label in col:
+        # Remove 'mean_beta_' prefix to get the group name
+        col_group_name = col.replace('mean_beta_', '')
+        if col_group_name == readable_group_a:
             group_a_col = col
-        if group_b_label in col:
+        elif col_group_name == readable_group_b:
             group_b_col = col
     
+    # Fallback: if not found, try to match by order (first two mean_beta columns)
     if group_a_col is None or group_b_col is None:
-        raise ValueError(
-            f"Could not find mean_beta columns for group comparison. "
-            f"Expected columns containing '{group_a_label}' and '{group_b_label}'. "
-            f"Found columns: {mean_beta_cols}"
-        )
+        if len(mean_beta_cols) >= 2:
+            logger.warning(f"Could not find exact matches for readable group names. Using first two mean_beta columns.")
+            group_a_col = mean_beta_cols[0]
+            group_b_col = mean_beta_cols[1]
+        else:
+            raise ValueError(
+                f"Could not find mean_beta columns for group comparison. "
+                f"Expected columns for '{readable_group_a}' and '{readable_group_b}'. "
+                f"Found columns: {mean_beta_cols}"
+            )
     
     # Plot each chromosome as a horizontal bar
     for chrom in chromosomes:
